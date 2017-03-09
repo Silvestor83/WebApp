@@ -21,8 +21,6 @@ namespace WebApp
 
 		private void Initialize()
 		{
-			audioRec = null;
-			webCam = null;
 			string date = DateTime.Now.ToString("yyyy-MM-dd  HH-mm-ss");
 			if (data.IsRecordAudio) audioRec = new AudioRec(date);
 			if (data.IsRecordVideo) webCam = new VideoRec(date);

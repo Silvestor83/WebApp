@@ -25,6 +25,12 @@ namespace WebApp
 		public int SampleRate = 44100;
 		public int Chanels = 1;
 		public string PathAudio = @"C:\Video\Audio";
+		// Server settings
+		public bool IsSendImages = false;
+		public string Login = "Test";
+		public string Password = "123456";
+		public string Host = @"http://localhost:4602";
+		public int ImagesPerMinute = 12;
 
 		private Settings() { }
 
