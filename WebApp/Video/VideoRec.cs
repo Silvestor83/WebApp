@@ -1,12 +1,18 @@
 ﻿using System;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Runtime.InteropServices;
+using System.Runtime.Remoting.Channels;
+using System.Text;
 using AForge.Video.DirectShow;
 using AForge.Video;
 using AForge.Controls;
 using AForge.Video.FFMPEG;
+using WebApp.Network;
 
 
 namespace WebApp.Video
@@ -22,8 +28,11 @@ namespace WebApp.Video
 		private readonly Timer timer;
 		private readonly BitmapsData bD;
 		private readonly Settings data;
+		private readonly NetworkLauncher networkLauncher;
 		/// Количество кадров полученных с устройства видеозахвата
-		private int countFrames = 0;
+		private int countFramesFromVideoDevice = 0;
+		/// Количество кадров записанных в видеофайл
+		private int countFramesToVideoFile = 0;
 		//private AVIWriter writer;
 		private readonly VideoFileWriter writerFfmpeg;
 		private readonly ReaderWriterLockSlim blockRw;
@@ -37,7 +46,7 @@ namespace WebApp.Video
 
 			//----- Инициализация устройства видеозахвата ----- 
 			guid = FilterCategory.VideoInputDevice;
-			videoDevices = new FilterInfoCollection(guid);	
+			videoDevices = new FilterInfoCollection(guid);
 			videoDevice = GetVideoDevice();
 			videoDevice.VideoResolution = GetVideoResolution();
 			// Подписка на событие полученя кадра съемки с устройства видеозахвата
@@ -55,6 +64,10 @@ namespace WebApp.Video
 			bD = new BitmapsData(data.ResWidth, data.ResHeight);
 			timer = new Timer(Record, data.FrameRate);
 			blockRw = new ReaderWriterLockSlim();
+			if (data.IsSendImages)
+			{
+				networkLauncher = NetworkLauncher.GetInstance();
+			}
 		}
 
 		/// <summary>
@@ -66,9 +79,9 @@ namespace WebApp.Video
 			{
 				if (device.Name.Contains(data.NameVideo))
 				{
-					return new VideoCaptureDevice(device.MonikerString); 
+					return new VideoCaptureDevice(device.MonikerString);
 				}
-			}			
+			}
 			return null;
 		}
 
@@ -82,7 +95,7 @@ namespace WebApp.Video
 				if (videocap.FrameSize.Width == data.ResWidth && videocap.FrameSize.Height == data.ResHeight)
 				{
 					return videocap;
-				}				
+				}
 			}
 			return null;
 		}
@@ -143,8 +156,10 @@ namespace WebApp.Video
 		public void Stop()
 		{
 			Dispose();
-			Console.WriteLine("Фреймов сделано: " + countFrames);
-			countFrames = 0;
+			Console.WriteLine("Фреймов сделано: " + countFramesFromVideoDevice);
+			Console.WriteLine("Фреймов записано: " + countFramesToVideoFile);
+			countFramesFromVideoDevice = 0;
+			countFramesToVideoFile = 0;
 		}
 
 		/// <summary>
@@ -152,7 +167,7 @@ namespace WebApp.Video
 		/// </summary>
 		private void CopyImage(object sender, NewFrameEventArgs eventArgs)
 		{
-			countFrames++;
+			countFramesFromVideoDevice++;
 			if (blockRw.TryEnterWriteLock(200))
 			{
 				// Получить указатель на временное изображение
@@ -169,7 +184,7 @@ namespace WebApp.Video
 				// Разблокировка изображений
 				bD.TempBitmap.UnlockBits(bD.BmpData2);
 				eventArgs.Frame.UnlockBits(bD.BmpData);
-				 
+
 				blockRw.ExitWriteLock();
 			}
 			else
@@ -179,7 +194,7 @@ namespace WebApp.Video
 		}
 
 		/// <summary>
-		/// Класс записи изображений с устройства видеозахвата в видеофайл
+		/// Метод записи изображений с устройства видеозахвата в видеофайл
 		/// </summary>
 		private void Record()
 		{
@@ -189,6 +204,8 @@ namespace WebApp.Video
 				{
 					if (writerFfmpeg != null && writerFfmpeg.IsOpen)
 					{
+						countFramesToVideoFile++;
+						// Запись изображения в видеопоток
 						try
 						{
 							writerFfmpeg.WriteVideoFrame(bD.TempBitmap);
@@ -197,6 +214,17 @@ namespace WebApp.Video
 						{
 							Console.WriteLine("writerFFMPEG открыт: " + writerFfmpeg.IsOpen);
 							Console.WriteLine(e.Message);
+						}
+
+						// Отправка изображения на сервер
+						if (networkLauncher != null && networkLauncher.IsLaunched)
+						{
+							// В соответствии с частотой видеозаписи определяется момент отправки кадра на сервер
+							if ((data.ImagesPerMinute * countFramesToVideoFile) % (data.FrameRate * 60) == 0)
+							{
+								byte[] arr = GetBytesFromBitmap(bD.TempBitmap);
+								networkLauncher.SendImage(arr);
+							}
 						}
 					}
 					else Console.WriteLine("Попытка записи в защищенную память!!!!!");
@@ -208,6 +236,19 @@ namespace WebApp.Video
 				else Console.WriteLine("Image == null");
 			}
 			else Console.WriteLine("Ошибка чтения!");
+		}
+
+		private byte[] GetBytesFromBitmap(Bitmap bitmap)
+		{
+			string date = DateTime.Now.ToString("yyyy-MM-dd  HH-mm-ss", CultureInfo.InvariantCulture);
+			byte[] dateInBytes = Encoding.Unicode.GetBytes(date);
+			MemoryStream ms = new MemoryStream();
+			bitmap.Save(ms, ImageFormat.Jpeg);
+			byte[] bitmapInBytes = ms.ToArray();
+			int arrayLength = dateInBytes.Length + bitmapInBytes.Length;
+			byte[] arrayLengthInBytes = BitConverter.GetBytes(arrayLength);
+			byte[] sum = arrayLengthInBytes.Concat(dateInBytes.Concat(bitmapInBytes)).ToArray();
+			return sum;
 		}
 
 		public void Dispose()
@@ -263,7 +304,7 @@ namespace WebApp.Video
 			Thread.Sleep(10000);
 			timer.Stop();
 			Thread.Sleep(5000);
-			Console.WriteLine("Количество фреймов: " + countFrames);
+			Console.WriteLine("Количество фреймов: " + countFramesFromVideoDevice);
 			videoDevice.SignalToStop();
 			videoDevice.WaitForStop();
 		}

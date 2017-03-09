@@ -80,12 +80,14 @@
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Drawing" />
+    <Reference Include="System.Net" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.XML" />
     <Reference Include="System.Xml.Linq" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Audio\AudioRec.cs" />
+    <Compile Include="Network\Client.cs" />
     <Compile Include="Video\BitmapData.cs" />
     <Compile Include="Video\Timer.cs" />
     <Compile Include="Video\VideoRec.cs" />
@@ -114,6 +116,7 @@
       <Install>true</Install>
     </BootstrapperPackage>
   </ItemGroup>
+  <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.
